@@ -39,5 +39,10 @@ export async function tryCreateClient() {
     return null;
   }
 
-  return createClient();
+  try {
+    return await createClient();
+  } catch {
+    // CLI scripts and other non-request contexts cannot call cookies().
+    return null;
+  }
 }
