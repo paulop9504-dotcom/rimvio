@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { useCopy } from "@/hooks/use-copy";
 import { subscribeCoordinationContextSignals } from "@/lib/globe/market/coordination/client/subscribe-coordination-context-signals";
@@ -17,11 +17,9 @@ import { readUserFocusDeferringNegotiationSync } from "@/lib/globe/market/coordi
 /** Global coordination mount — attention toasts + focus/calendar room sync. */
 export function useAgentCoordinationMount(): void {
   const copy = useCopy();
-  const uiRef = useRef(copy.globe.coordination);
-  uiRef.current = copy.globe.coordination;
+  const coordinationUi = copy.globe.coordination;
 
   useEffect(() => {
-    const ui = uiRef.current;
     return subscribeAgentCoordinationAttention((event) => {
       if (event.kind === "slot_needed" && readUserFocusDeferringNegotiationSync()) {
         return;
@@ -35,30 +33,30 @@ export function useAgentCoordinationMount(): void {
 
       switch (event.kind) {
         case "slot_needed":
-          toast(ui.attentionSlotNeeded(event.productTitle), {
-            action: { label: ui.attentionOpenRoom, onClick: openRoom },
+          toast(coordinationUi.attentionSlotNeeded(event.productTitle), {
+            action: { label: coordinationUi.attentionOpenRoom, onClick: openRoom },
           });
           break;
         case "proposal_ready":
-          toast(ui.attentionProposalReady(event.productTitle), {
-            action: { label: ui.attentionReviewCta, onClick: openTrades },
+          toast(coordinationUi.attentionProposalReady(event.productTitle), {
+            action: { label: coordinationUi.attentionReviewCta, onClick: openTrades },
           });
           break;
         case "peer_approved":
-          toast(ui.attentionPeerApproved(event.productTitle), {
-            action: { label: ui.attentionReviewCta, onClick: openTrades },
+          toast(coordinationUi.attentionPeerApproved(event.productTitle), {
+            action: { label: coordinationUi.attentionReviewCta, onClick: openTrades },
           });
           break;
         case "fully_approved":
-          toast.success(ui.attentionFullyApproved(event.productTitle), {
-            action: { label: ui.attentionOpenTrades, onClick: openTrades },
+          toast.success(coordinationUi.attentionFullyApproved(event.productTitle), {
+            action: { label: coordinationUi.attentionOpenTrades, onClick: openTrades },
           });
           break;
         default:
           break;
       }
     });
-  }, []);
+  }, [coordinationUi]);
 
   useEffect(() => {
     void syncAgentCoordinationFocusState();

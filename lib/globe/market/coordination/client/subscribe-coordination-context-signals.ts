@@ -1,8 +1,10 @@
-"use client";
+﻿"use client";
 
-import { FOCUS_SESSION_UPDATED } from "@/lib/action-chat/mention-focus/focus-session-store";
 import { EVENT_CANDIDATES_UPDATED } from "@/lib/life-read-model/candidates-updated";
 import { KNOWLEDGE_ENTITY_UPDATED } from "@/lib/knowledge/knowledge-entity-db";
+
+/** Must match `FOCUS_SESSION_UPDATED` in action-chat focus-session-store. */
+const FOCUS_SESSION_UPDATED_EVENT = "rimvio-focus-session-updated";
 
 export type CoordinationContextSignalOptions = {
   /** Include focus-session changes (default true). */
@@ -41,7 +43,7 @@ export function subscribeCoordinationContextSignals(
   window.addEventListener(KNOWLEDGE_ENTITY_UPDATED, emit);
   window.addEventListener(EVENT_CANDIDATES_UPDATED, emit);
   if (includeFocusSession) {
-    window.addEventListener(FOCUS_SESSION_UPDATED, emit);
+    window.addEventListener(FOCUS_SESSION_UPDATED_EVENT, emit);
   }
 
   return () => {
@@ -51,7 +53,7 @@ export function subscribeCoordinationContextSignals(
     window.removeEventListener(KNOWLEDGE_ENTITY_UPDATED, emit);
     window.removeEventListener(EVENT_CANDIDATES_UPDATED, emit);
     if (includeFocusSession) {
-      window.removeEventListener(FOCUS_SESSION_UPDATED, emit);
+      window.removeEventListener(FOCUS_SESSION_UPDATED_EVENT, emit);
     }
   };
 }
