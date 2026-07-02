@@ -3,14 +3,19 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useCopy } from "@/hooks/use-copy";
+import { subscribeCoordinationContextSignals } from "@/lib/globe/market/coordination/client/subscribe-coordination-context-signals";
 import {
   openFieldTradesForCoordination,
   subscribeAgentCoordinationAttention,
 } from "@/lib/globe/market/coordination/agent-coordination-attention-bridge";
-import { agentNegotiationRoomPath } from "@/lib/globe/market/coordination/agent-negotiation-store";
+import {
+  agentNegotiationRoomPath,
+  syncAgentCoordinationFocusState,
+} from "@/lib/globe/market/coordination/agent-negotiation-store";
 import { readUserFocusDeferringNegotiationSync } from "@/lib/globe/market/coordination/client/read-user-focus-defer-client";
 
-export function useAgentCoordinationAttention(): void {
+/** Global coordination mount — attention toasts + focus/calendar room sync. */
+export function useAgentCoordinationMount(): void {
   const copy = useCopy();
   const uiRef = useRef(copy.globe.coordination);
   uiRef.current = copy.globe.coordination;
@@ -53,5 +58,19 @@ export function useAgentCoordinationAttention(): void {
           break;
       }
     });
+  }, []);
+
+  useEffect(() => {
+    void syncAgentCoordinationFocusState();
+    const unsubSignals = subscribeCoordinationContextSignals(() => {
+      void syncAgentCoordinationFocusState();
+    });
+    const timer = window.setInterval(() => {
+      void syncAgentCoordinationFocusState();
+    }, 60_000);
+    return () => {
+      unsubSignals();
+      window.clearInterval(timer);
+    };
   }, []);
 }

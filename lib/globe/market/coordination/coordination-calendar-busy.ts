@@ -1,5 +1,4 @@
 import type { CalendarEventChip } from "@/lib/calendar/calendar-view-types";
-import { composeUnifiedCalendarOverlay } from "@/lib/calendar/compose-unified-calendar-overlay";
 import { projectKnowledgeCalendarChips } from "@/lib/calendar/project-knowledge-calendar-chips";
 import type { EventCalendarRow } from "@/lib/events/project-event-calendar";
 import { projectEventCalendarChips } from "@/lib/events/project-event-calendar";
@@ -73,8 +72,6 @@ export function buildCoordinationCalendarBusy(input: {
   const now = input.now ?? new Date();
   const eventChips = projectEventCalendarChips(input.eventCalendarRows ?? [], now);
   const knowledgeChips = projectKnowledgeCalendarChips(input.knowledgeEntities, now);
-  // Compose validates the shared calendar pipeline; busy uses every timed chip start.
-  void composeUnifiedCalendarOverlay(eventChips, knowledgeChips, now);
   return busyIntervalsFromCalendarChips([...eventChips, ...knowledgeChips]);
 }
 
@@ -82,10 +79,7 @@ export function buildCalendarBusyFromKnowledgeEntities(
   entities: readonly KnowledgeEntity[],
   now = new Date(),
 ): CalendarBusyInterval[] {
-  const knowledgeChips = projectKnowledgeCalendarChips(entities, now);
-  const overlayRows = composeUnifiedCalendarOverlay([], knowledgeChips, now);
-  void overlayRows;
-  return busyIntervalsFromCalendarChips(knowledgeChips);
+  return buildCoordinationCalendarBusy({ knowledgeEntities: entities, now });
 }
 
 export function mergeCalendarBusyIntoRoom(

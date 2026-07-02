@@ -1,11 +1,9 @@
 "use client";
 
-import { useAgentCoordinationAttention } from "@/hooks/use-agent-coordination-attention";
-import { useAgentCoordinationFocusSync } from "@/hooks/use-agent-coordination-focus-sync";
+import { useAgentCoordinationMount } from "@/hooks/use-agent-coordination-mount";
 
 /** Global toast bridge for agent coordination attention events. */
 export function AgentCoordinationAttentionMount() {
-  useAgentCoordinationAttention();
-  useAgentCoordinationFocusSync();
+  useAgentCoordinationMount();
   return null;
 }

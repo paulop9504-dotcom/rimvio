@@ -9,6 +9,7 @@ import { AgentProgressList } from "@/components/ui/agent-progress-list";
 import { MarketTradeCancelReservationPanel } from "@/components/market/market-trade-cancel-reservation-panel";
 import { MarketListingMediaRowThumb } from "@/components/market/market-listing-media-thumb";
 import { useCopy } from "@/hooks/use-copy";
+import { useCoordinationCalendarBusy } from "@/hooks/use-coordination-calendar-busy";
 import { useLiveLocationSnapshot } from "@/hooks/use-live-location-snapshot";
 import {
   acceptMarketTradeScheduleRemote,
@@ -33,7 +34,7 @@ import {
   buildKakaoMapRouteWebHref,
 } from "@/lib/resolvers/deep-links";
 import { openHrefWithFallback } from "@/lib/actions/open-with-fallback";
-import { rimvioCompactPrimaryCtaClass } from "@/lib/design/rimvio-ontology";
+import { rimvioCompactPrimaryCtaClass, RIMVIO_RADIUS, RIMVIO_TYPE, rimvioSurfaceCardClass } from "@/lib/design/rimvio-ontology";
 import { tradeProgressStepsToAgentTasks } from "@/lib/globe/market/trade-progress-steps-to-agent-tasks";
 import {
   agentNegotiationRoomPath,
@@ -44,12 +45,15 @@ import {
   submitAgentNegotiationSlotAnswer,
   subscribeAgentNegotiationRooms,
 } from "@/lib/globe/market/coordination/agent-negotiation-store";
-import { fetchCoordinationCalendarBusyIntervals } from "@/lib/globe/market/coordination/client/read-coordination-calendar-busy";
 import { viewerHasApprovedCoordination } from "@/lib/globe/market/coordination/detect-agent-coordination-attention";
 import type { AgentNegotiationRoomRecord } from "@/lib/globe/market/coordination/agent-negotiation-types";
-import { EVENT_CANDIDATES_UPDATED } from "@/lib/life-read-model/candidates-updated";
-import { KNOWLEDGE_ENTITY_UPDATED } from "@/lib/knowledge/knowledge-entity-db";
 import { cn } from "@/lib/utils";
+
+const MARKET_FIELD_PANEL = cn(RIMVIO_RADIUS.md, "bg-muted px-3 py-3");
+const MARKET_FIELD_LINK_CTA =
+  "w-full rounded-xl bg-card py-2.5 text-[13px] font-semibold text-primary shadow-sm ring-1 ring-primary/20";
+const MARKET_FIELD_CHIP =
+  "rounded-full bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground disabled:opacity-50";
 
 export type MarketTradeProgressCardProps = {
   session: MarketTradeSessionView;
@@ -80,12 +84,10 @@ export function MarketTradeProgressCard({
   );
   const [coordinationBusy, setCoordinationBusy] = useState(false);
   const [slotChipBusy, setSlotChipBusy] = useState<string | null>(null);
-  const [coordinationBusyIntervals, setCoordinationBusyIntervals] = useState<
-    Awaited<ReturnType<typeof fetchCoordinationCalendarBusyIntervals>>
-  >([]);
+  const coordinationBusyIntervals = useCoordinationCalendarBusy();
 
   const isSeeking = session.viewerRole === "seeking";
-  const badgeTone = isSeeking ? "bg-[#7c3aed] text-white" : "bg-[#3182f6] text-white";
+  const badgeTone = isSeeking ? "bg-violet-600 text-white" : "bg-primary text-white";
 
   useEffect(() => {
     const syncRoom = () => {
@@ -107,28 +109,6 @@ export function MarketTradeProgressCard({
     });
     return unsub;
   }, [session.handshakeId, coordinationBusyIntervals]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const refreshBusy = (refreshGoogle = false) => {
-      void fetchCoordinationCalendarBusyIntervals(new Date(), { refreshGoogle }).then(
-        (intervals) => {
-          if (!cancelled) {
-            setCoordinationBusyIntervals(intervals);
-          }
-        },
-      );
-    };
-    refreshBusy(true);
-    const onCalendarChange = () => refreshBusy(false);
-    window.addEventListener(KNOWLEDGE_ENTITY_UPDATED, onCalendarChange);
-    window.addEventListener(EVENT_CANDIDATES_UPDATED, onCalendarChange);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(KNOWLEDGE_ENTITY_UPDATED, onCalendarChange);
-      window.removeEventListener(EVENT_CANDIDATES_UPDATED, onCalendarChange);
-    };
-  }, [session.handshakeId]);
 
   useEffect(() => {
     const dateKey = session.preferredMeetDateKey?.trim();
@@ -431,10 +411,7 @@ export function MarketTradeProgressCard({
   return (
     <>
       <article
-        className={cn(
-          "rounded-2xl bg-white px-4 py-3.5 shadow-sm ring-1 ring-black/[0.05]",
-          className,
-        )}
+        className={cn(rimvioSurfaceCardClass("px-4 py-3.5"), className)}
         data-market-trade-card={session.handshakeId}
       >
         <div className="mb-2.5 flex items-start justify-between gap-3">
@@ -442,40 +419,40 @@ export function MarketTradeProgressCard({
             {session.roleBadgeKo}
           </span>
           <div className="text-right">
-            <p className="text-[13px] font-semibold text-[#191f28]">{statusHeadlineKo}</p>
+            <p className={cn(RIMVIO_TYPE.caption, "font-semibold text-foreground")}>{statusHeadlineKo}</p>
             {session.statusSublineKo ? (
-              <p className="mt-0.5 text-[12px] text-[#6b7684]">{session.statusSublineKo}</p>
+              <p className={cn("mt-0.5", RIMVIO_TYPE.caption)}>{session.statusSublineKo}</p>
             ) : null}
           </div>
         </div>
 
         <div className="flex gap-2.5">
-          <div className="relative size-[52px] shrink-0 overflow-hidden rounded-xl bg-[#f2f4f6]">
+          <div className={cn("relative size-[52px] shrink-0 overflow-hidden", RIMVIO_RADIUS.md, "bg-muted")}>
             {session.photoUrl ? (
               <MarketListingMediaRowThumb
                 photoUrl={session.photoUrl}
                 videoUrl={session.videoUrl}
               />
             ) : (
-              <div className="flex size-full items-center justify-center text-[#b0b8c1]">
+              <div className="flex size-full items-center justify-center text-muted-foreground/60">
                 <ImageIcon className="size-6" aria-hidden />
               </div>
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-bold text-[#191f28]">{session.productTitle}</p>
-            <p className="mt-0.5 text-[14px] font-semibold text-[#191f28]">{session.priceLine}</p>
+            <p className={cn(RIMVIO_TYPE.body, "truncate font-bold")}>{session.productTitle}</p>
+            <p className={cn("mt-0.5", RIMVIO_TYPE.body, "font-semibold")}>{session.priceLine}</p>
           </div>
         </div>
 
         {showCoordinationSection ? (
-          <div className="mt-3 space-y-2 rounded-xl bg-[#f8f9fb] px-3 py-3" data-market-trade-coordination>
+          <div className={cn("mt-3 space-y-2", MARKET_FIELD_PANEL)} data-market-trade-coordination>
             {coordinationProposalReady && coordinationRoom?.proposal ? (
               <>
-                <p className="text-[13px] font-semibold text-[#191f28]">
+                <p className="text-[13px] font-semibold text-foreground">
                   {field.coordinationProposalHeadline}
                 </p>
-                <div className="space-y-1 text-[13px] text-[#4e5968]">
+                <div className="space-y-1 text-[13px] text-muted-foreground">
                   <p>
                     {coordinationUi.summaryPrice}: {coordinationRoom.proposal.priceKo}
                   </p>
@@ -489,7 +466,7 @@ export function MarketTradeProgressCard({
                   ) : null}
                 </div>
                 {coordinationViewerApproved ? (
-                  <p className="text-[12px] font-medium text-[#6b7684]">
+                  <p className="text-[12px] font-medium text-muted-foreground">
                     {coordinationUi.waitingPeerApproval}
                   </p>
                 ) : (
@@ -506,17 +483,17 @@ export function MarketTradeProgressCard({
                 <button
                   type="button"
                   onClick={onOpenCoordinationRoom}
-                  className="w-full rounded-xl bg-white py-2.5 text-[13px] font-semibold text-[#3182f6] ring-1 ring-[#3182f6]/20"
+                  className={MARKET_FIELD_LINK_CTA}
                 >
                   {field.coordinationViewRoomCta}
                 </button>
               </>
             ) : coordinationNeedsViewerSlot ? (
               <>
-                <p className="text-[13px] font-semibold text-[#191f28]">
+                <p className="text-[13px] font-semibold text-foreground">
                   {coordinationRoom?.pendingQuestion?.questionKo ?? coordinationUi.stateWaitingYou}
                 </p>
-                <p className="text-[12px] text-[#6b7684]">{field.coordinationInlineSlotHint}</p>
+                <p className="text-[12px] text-muted-foreground">{field.coordinationInlineSlotHint}</p>
                 {coordinationRoom?.pendingQuestion?.chips?.length ? (
                   <div
                     className="flex flex-wrap gap-2 pt-1"
@@ -528,7 +505,7 @@ export function MarketTradeProgressCard({
                         type="button"
                         disabled={slotChipBusy !== null}
                         onClick={() => onCoordinationSlotChip(chip)}
-                        className="rounded-full bg-[#2563eb] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                        className={MARKET_FIELD_CHIP}
                       >
                         {slotChipBusy === chip ? "…" : chip}
                       </button>
@@ -538,32 +515,32 @@ export function MarketTradeProgressCard({
                 <button
                   type="button"
                   onClick={onOpenCoordinationRoom}
-                  className="w-full rounded-xl bg-white py-2.5 text-[13px] font-semibold text-[#3182f6] ring-1 ring-black/[0.06]"
+                  className={MARKET_FIELD_LINK_CTA}
                 >
                   {field.coordinationViewRoomCta}
                 </button>
               </>
             ) : coordinationRoom?.state === "NEGOTIATING" ? (
               <>
-                <p className="flex items-center gap-2 text-[13px] font-medium text-[#4e5968]">
-                  <Sparkles className="size-4 shrink-0 text-[#3182f6]" aria-hidden />
+                <p className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
+                  <Sparkles className="size-4 shrink-0 text-primary" aria-hidden />
                   {field.coordinationProgressHeadline}
                 </p>
                 <button
                   type="button"
                   onClick={onOpenCoordinationRoom}
-                  className="w-full rounded-xl bg-white py-2.5 text-[13px] font-semibold text-[#3182f6] ring-1 ring-black/[0.06]"
+                  className={MARKET_FIELD_LINK_CTA}
                 >
                   {field.coordinationViewRoomCta}
                 </button>
               </>
             ) : coordinationRoom?.state === "STUCK" || coordinationRoom?.state === "PAUSED" ? (
               <>
-                <p className="text-[13px] text-[#4e5968]">{coordinationUi.stuckBody}</p>
+                <p className="text-[13px] text-muted-foreground">{coordinationUi.stuckBody}</p>
                 <button
                   type="button"
                   onClick={onOpenCoordinationRoom}
-                  className="w-full rounded-xl bg-white py-2.5 text-[13px] font-semibold text-[#3182f6] ring-1 ring-black/[0.06]"
+                  className={MARKET_FIELD_LINK_CTA}
                 >
                   {field.coordinationViewRoomCta}
                 </button>
@@ -573,8 +550,8 @@ export function MarketTradeProgressCard({
         ) : null}
 
         {session.showPickDay ? (
-          <div className="mt-3 space-y-2 rounded-xl bg-[#f8f9fb] px-3 py-3">
-            <p className="text-[13px] font-medium text-[#191f28]">{globe.marketTradePickDayTitle}</p>
+          <div className={cn("mt-3 space-y-2", MARKET_FIELD_PANEL)}>
+            <p className="text-[13px] font-medium text-foreground">{globe.marketTradePickDayTitle}</p>
             <div className="flex flex-wrap gap-2 pt-1">
               {session.scheduleCandidates.map((dateKey) => (
                 <button
@@ -582,7 +559,7 @@ export function MarketTradeProgressCard({
                   type="button"
                   disabled={busyKey !== null}
                   onClick={() => void onPickDay(dateKey)}
-                  className="rounded-full bg-[#7c3aed] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                  className="rounded-full bg-violet-600 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
                 >
                   {busyKey === dateKey ? "…" : formatMarketTradeDateLabelKo(dateKey)}
                 </button>
@@ -592,17 +569,17 @@ export function MarketTradeProgressCard({
         ) : null}
 
         {session.showProposeSchedule ? (
-          <div className="mt-3 space-y-3 rounded-xl bg-[#f8f9fb] px-3 py-3">
-            <p className="text-[13px] font-medium text-[#191f28]">
+          <div className={cn("mt-3 space-y-3", MARKET_FIELD_PANEL)}>
+            <p className="text-[13px] font-medium text-foreground">
               {globe.marketTradeProposeScheduleTitle}
             </p>
             {session.preferredMeetDateKey ? (
-              <p className="text-[12px] font-semibold text-[#3182f6]">
+              <p className="text-[12px] font-semibold text-primary">
                 {formatMarketTradeDateLabelKo(session.preferredMeetDateKey)}
               </p>
             ) : null}
             <label className="block">
-              <span className="mb-1 block text-[12px] font-medium text-[#6b7684]">
+              <span className="mb-1 block text-[12px] font-medium text-muted-foreground">
                 {globe.marketTradeProposeTimeLabel}
               </span>
               <input
@@ -610,11 +587,13 @@ export function MarketTradeProgressCard({
                 step={60}
                 value={proposeTimeValue}
                 onChange={(event) => setProposeTimeValue(event.target.value)}
-                className="w-full rounded-xl border border-[#e5e8eb] bg-white px-3 py-2.5 text-[14px] outline-none focus:border-[#3182f6]"
+                className={cn(
+                  "w-full rounded-xl border border-border bg-card px-3 py-2.5 text-[14px] outline-none focus:border-primary",
+                )}
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[12px] font-medium text-[#6b7684]">
+              <span className="mb-1 block text-[12px] font-medium text-muted-foreground">
                 {globe.marketTradeProposePlaceLabel}
               </span>
               <input
@@ -622,7 +601,9 @@ export function MarketTradeProgressCard({
                 value={proposePlace}
                 onChange={(event) => setProposePlace(event.target.value)}
                 placeholder={globe.marketTradeProposePlacePlaceholder}
-                className="w-full rounded-xl border border-[#e5e8eb] bg-white px-3 py-2.5 text-[14px] outline-none focus:border-[#3182f6]"
+                className={cn(
+                  "w-full rounded-xl border border-border bg-card px-3 py-2.5 text-[14px] outline-none focus:border-primary",
+                )}
               />
             </label>
             <button
@@ -637,16 +618,16 @@ export function MarketTradeProgressCard({
         ) : null}
 
         {session.showAcceptProposal ? (
-          <div className="mt-3 space-y-3 rounded-xl bg-[#f8f9fb] px-3 py-3">
+          <div className={cn("mt-3 space-y-3", MARKET_FIELD_PANEL)}>
             {session.meetAtLabelKo ? (
-              <p className="flex items-center gap-2 text-[14px] font-semibold text-[#191f28]">
-                <Calendar className="size-4 text-[#3182f6]" aria-hidden />
+              <p className={cn("flex items-center gap-2", RIMVIO_TYPE.body, "font-semibold")}>
+                <Calendar className="size-4 text-primary" aria-hidden />
                 {session.meetAtLabelKo}
               </p>
             ) : null}
             {session.meetPlaceDisplay ? (
-              <p className="flex items-center gap-2 text-[14px] text-[#191f28]">
-                <MapPin className="size-4 text-[#3182f6]" aria-hidden />
+              <p className={cn("flex items-center gap-2", RIMVIO_TYPE.body)}>
+                <MapPin className="size-4 text-primary" aria-hidden />
                 {session.meetPlaceDisplay}
               </p>
             ) : null}
@@ -662,21 +643,21 @@ export function MarketTradeProgressCard({
         ) : null}
 
         {!schedulingActive && session.meetAtLabelKo ? (
-          <p className="mt-3 flex items-center gap-2 text-[14px] text-[#191f28]">
-            <Calendar className="size-4 shrink-0 text-[#3182f6]" aria-hidden />
+          <p className={cn("mt-3 flex items-center gap-2", RIMVIO_TYPE.body)}>
+            <Calendar className="size-4 shrink-0 text-primary" aria-hidden />
             {session.meetAtLabelKo}
           </p>
         ) : null}
 
         {!schedulingActive && session.meetPlaceDisplay ? (
-          <p className="mt-1.5 flex items-center gap-2 text-[14px] text-[#191f28]">
-            <MapPin className="size-4 shrink-0 text-[#3182f6]" aria-hidden />
+          <p className={cn("mt-1.5 flex items-center gap-2", RIMVIO_TYPE.body)}>
+            <MapPin className="size-4 shrink-0 text-primary" aria-hidden />
             {session.meetPlaceDisplay}
           </p>
         ) : null}
 
         {session.hostGuestEtaLabelKo ? (
-          <p className="mt-2 flex items-center gap-2 text-[13px] font-medium text-[#3182f6]">
+          <p className="mt-2 flex items-center gap-2 text-[13px] font-medium text-primary">
             <Car className="size-3.5 shrink-0" aria-hidden />
             {session.hostGuestEtaLabelKo}
           </p>
@@ -698,7 +679,9 @@ export function MarketTradeProgressCard({
                 <button
                   type="button"
                   onClick={onNavigate}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#f2f4f6] py-2.5 text-[14px] font-semibold text-[#191f28]"
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-muted py-2.5 text-[14px] font-semibold text-foreground",
+                  )}
                 >
                   <Navigation className="size-4" aria-hidden />
                   {globe.marketTradeNavigate}
@@ -712,8 +695,8 @@ export function MarketTradeProgressCard({
                   className={cn(
                     "flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-[14px] font-semibold disabled:opacity-50",
                     session.canDepart
-                      ? "bg-[#22c55e] text-white"
-                      : "cursor-not-allowed bg-[#f2f4f6] text-[#b0b8c1]",
+                      ? "bg-emerald-500 text-white"
+                      : "cursor-not-allowed bg-muted text-muted-foreground/60",
                   )}
                 >
                   <Car className="size-4" aria-hidden />
@@ -721,20 +704,20 @@ export function MarketTradeProgressCard({
                 </button>
               ) : null}
               {session.isEnRoute && session.viewerRole === "seeking" ? (
-                <span className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#ecfdf3] py-2.5 text-[14px] font-semibold text-[#16a34a]">
+                <span className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-50 py-2.5 text-[14px] font-semibold text-emerald-600">
                   <Car className="size-4" aria-hidden />
                   {globe.marketTradeEnRoute}
                 </span>
               ) : null}
               {session.isEnRoute && session.viewerRole === "listing" ? (
-                <span className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#eff6ff] py-2.5 text-[14px] font-semibold text-[#2563eb]">
+                <span className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary/10 py-2.5 text-[14px] font-semibold text-primary">
                   <Car className="size-4" aria-hidden />
                   {globe.marketTradeGuestEnRouteListing}
                 </span>
               ) : null}
             </div>
             {session.departOpensHintKo ? (
-              <p className="text-[12px] leading-relaxed text-[#6b7684]">
+              <p className={cn("text-[12px] leading-relaxed", RIMVIO_TYPE.caption)}>
                 {session.departOpensHintKo}
               </p>
             ) : null}
@@ -756,7 +739,7 @@ export function MarketTradeProgressCard({
         {session.canConfirmHandshakeComplete || session.awaitingHandshakeOtherParty ? (
           <div className="mt-4 border-t border-black/[0.06] pt-3">
             {session.awaitingHandshakeOtherParty ? (
-              <p className="text-center text-[13px] text-[#6b7684]">
+              <p className={cn("text-center", RIMVIO_TYPE.caption)}>
                 {globe.marketHandshakeAwaitingOtherParty}
               </p>
             ) : (

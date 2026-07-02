@@ -9,15 +9,18 @@ import {
 } from "@/lib/globe/market/coordination/agent-negotiation-room-engine";
 import { dispatchAgentCoordinationAttention } from "@/lib/globe/market/coordination/agent-coordination-attention-bridge";
 import { detectAgentCoordinationAttentionChanges } from "@/lib/globe/market/coordination/detect-agent-coordination-attention";
-import { fetchCoordinationCalendarBusyIntervals } from "@/lib/globe/market/coordination/client/read-coordination-calendar-busy";
+import {
+  readCoordinationPatchContext,
+  type CoordinationPatchContext,
+} from "@/lib/globe/market/coordination/client/read-coordination-patch-context";
 import {
   readUserFocusDeferringNegotiationSync,
   refreshUserFocusDeferringNegotiation,
 } from "@/lib/globe/market/coordination/client/read-user-focus-defer-client";
 import {
   mergeCalendarBusyIntoRoom,
+  parseCalendarBusyIntervalWire,
   refreshCoordinationRoomMeetSlotChips,
-  serializeCalendarBusyIntervals,
 } from "@/lib/globe/market/coordination/coordination-calendar-busy";
 import {
   isFocusDeferPaused,
@@ -34,17 +37,68 @@ import type {
   AgentNegotiationSlotKey,
   StartAgentNegotiationRoomInput,
 } from "@/lib/globe/market/coordination/agent-negotiation-types";
+import type { CalendarBusyInterval } from "@/lib/globe/market/coordination/agent-negotiation-slot-chips";
 import type { MarketTradeSessionView } from "@/lib/globe/market/market-trade-types";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 const STORAGE_KEY = "rimvio-agent-negotiation-rooms-v1";
 const UPDATE_EVENT = "rimvio:agent-negotiation-updated";
+const CONTEXT_UPDATE_EVENT = "rimvio:coordination-context-updated";
+const CONTEXT_SNAPSHOT_TTL_MS = 60_000;
 
 type RoomMap = Record<string, AgentNegotiationRoomRecord>;
+
+type CoordinationContextSnapshot = {
+  calendarBusyIntervals: CalendarBusyInterval[];
+  focusActive: boolean;
+  fetchedAtMs: number;
+};
 
 let remoteListCache: AgentNegotiationRoomRecord[] | null = null;
 let remoteMigrationPending = false;
 let remoteRoomsSnapshot: Record<string, AgentNegotiationRoomRecord> = {};
+let coordinationContextSnapshot: CoordinationContextSnapshot | null = null;
+const coordinationContextListeners = new Set<() => void>();
+
+function wireToBusyIntervals(
+  wire: CoordinationPatchContext["calendarBusyIntervals"],
+): CalendarBusyInterval[] {
+  return parseCalendarBusyIntervalWire(wire);
+}
+
+function emitCoordinationContextUpdate(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  for (const listener of coordinationContextListeners) {
+    listener();
+  }
+  window.dispatchEvent(new CustomEvent(CONTEXT_UPDATE_EVENT));
+}
+
+function setCoordinationContextSnapshot(
+  patchContext: CoordinationPatchContext,
+): CoordinationContextSnapshot {
+  const snapshot: CoordinationContextSnapshot = {
+    calendarBusyIntervals: wireToBusyIntervals(patchContext.calendarBusyIntervals),
+    focusActive: patchContext.focusActive,
+    fetchedAtMs: Date.now(),
+  };
+  coordinationContextSnapshot = snapshot;
+  emitCoordinationContextUpdate();
+  return snapshot;
+}
+
+export function getCoordinationCalendarBusySnapshot(): CalendarBusyInterval[] {
+  return coordinationContextSnapshot?.calendarBusyIntervals ?? [];
+}
+
+export function subscribeCoordinationCalendarBusy(listener: () => void): () => void {
+  coordinationContextListeners.add(listener);
+  return () => {
+    coordinationContextListeners.delete(listener);
+  };
+}
 
 function readMap(): RoomMap {
   if (typeof window === "undefined") {
@@ -93,28 +147,24 @@ function cacheRooms(rooms: readonly AgentNegotiationRoomRecord[]): void {
 function applyLocalCoordinationContext(
   room: AgentNegotiationRoomRecord,
 ): AgentNegotiationRoomRecord {
-  const focusActive = readUserFocusDeferringNegotiationSync();
+  const snapshot = coordinationContextSnapshot;
+  const focusActive =
+    snapshot && Date.now() - snapshot.fetchedAtMs <= CONTEXT_SNAPSHOT_TTL_MS
+      ? snapshot.focusActive
+      : readUserFocusDeferringNegotiationSync();
   let next = refreshAgentNegotiationFocusDeferState(
     room,
     focusActive,
     AGENT_NEGOTIATION_FOCUS_DEFER_MESSAGE_KO,
   );
-  next = refreshCoordinationRoomMeetSlotChips(next);
-  return next;
-}
-
-async function readCoordinationPatchContext(options?: { refreshGoogle?: boolean }) {
-  const [busyIntervals, focusActive] = await Promise.all([
-    fetchCoordinationCalendarBusyIntervals(new Date(), {
-      refreshGoogle: options?.refreshGoogle,
-    }),
-    refreshUserFocusDeferringNegotiation(),
-  ]);
-  return {
-    calendarBusyIntervals: serializeCalendarBusyIntervals(busyIntervals),
-    focusActive,
-    focusDeferMessageKo: AGENT_NEGOTIATION_FOCUS_DEFER_MESSAGE_KO,
-  };
+  if (
+    snapshot &&
+    Date.now() - snapshot.fetchedAtMs <= CONTEXT_SNAPSHOT_TTL_MS &&
+    snapshot.calendarBusyIntervals.length > 0
+  ) {
+    next = mergeCalendarBusyIntoRoom(next, snapshot.calendarBusyIntervals);
+  }
+  return refreshCoordinationRoomMeetSlotChips(next);
 }
 
 function isRemoteCoordinationEnabled(): boolean {
@@ -221,6 +271,7 @@ export async function startAgentNegotiationRoom(
   const patchContext = await readCoordinationPatchContext({
     refreshGoogle: !input.calendarBusyIntervals?.length,
   });
+  setCoordinationContextSnapshot(patchContext);
   const startInput: StartAgentNegotiationRoomInput = {
     ...input,
     calendarBusyIntervals:
@@ -289,14 +340,18 @@ export async function bootstrapAgentNegotiationFromSession(
 
 export async function runAgentNegotiationTurn(
   handshakeId: string,
+  patchContext?: CoordinationPatchContext,
 ): Promise<AgentNegotiationRoomRecord | null> {
-  const patchContext = await readCoordinationPatchContext();
+  const context = patchContext ?? (await readCoordinationPatchContext());
+  if (!patchContext) {
+    setCoordinationContextSnapshot(context);
+  }
   if (isRemoteCoordinationEnabled()) {
     try {
       const room = await patchAgentCoordinationRoomRemote({
         handshakeId,
         action: "tick",
-        ...patchContext,
+        ...context,
       });
       return cacheRoom(room);
     } catch {
@@ -309,16 +364,14 @@ export async function runAgentNegotiationTurn(
   }
   const withBusy = mergeCalendarBusyIntoRoom(
     room,
-    patchContext.calendarBusyIntervals.map((wire) => ({
-      startMs: new Date(wire.start).getTime(),
-      endMs: new Date(wire.end).getTime(),
-    })),
+    wireToBusyIntervals(context.calendarBusyIntervals),
   );
   return cacheRoom(advanceAgentNegotiationTurn(withBusy));
 }
 
 export async function syncAgentCoordinationFocusState(): Promise<void> {
   const patchContext = await readCoordinationPatchContext();
+  setCoordinationContextSnapshot(patchContext);
   const rooms = listAgentNegotiationRooms().filter(
     (room) => room.state !== "APPROVED" && room.state !== "STUCK",
   );
@@ -386,7 +439,7 @@ export async function syncAgentCoordinationFocusState(): Promise<void> {
     }
   }
   for (const handshakeId of resumeHandshakeIds) {
-    await runAgentNegotiationTurn(handshakeId);
+    await runAgentNegotiationTurn(handshakeId, patchContext);
   }
 }
 
