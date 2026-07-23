@@ -12,16 +12,27 @@ export function syncGlobeVectorMapSize(
   }
 }
 
+/**
+ * Coalesce resize storms (keyboard / chrome / orientation) into one rAF tick.
+ * Critical for mobile Workspace map jank.
+ */
 export function bindGlobeVectorMapResize(
   map: MapLibreMap,
   container: HTMLElement,
 ): () => void {
+  let raf = 0;
   const resize = () => {
-    syncGlobeVectorMapSize(map, container);
+    if (raf) {
+      return;
+    }
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      syncGlobeVectorMapSize(map, container);
+    });
   };
 
+  syncGlobeVectorMapSize(map, container);
   resize();
-  requestAnimationFrame(resize);
 
   const observer =
     typeof ResizeObserver !== "undefined"
@@ -34,6 +45,10 @@ export function bindGlobeVectorMapResize(
   map.on("load", resize);
 
   return () => {
+    if (raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
     observer?.disconnect();
     map.off("load", resize);
   };

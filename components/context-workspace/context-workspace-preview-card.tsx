@@ -5,6 +5,7 @@
  * 펼치기 → full Context Workspace (cards · prompt · tools).
  */
 
+import { useMemo } from "react";
 import type { WorkspacePreviewComposePayload } from "@/lib/globe/assistant/context-agent-compose-thread-store";
 import { dispatchContextWorkspaceExpand } from "@/lib/context-workspace/workspace-expand-bridge";
 import { WorkspaceMapView } from "@/components/context-workspace/workspace-map-view";
@@ -30,14 +31,18 @@ export function ContextWorkspacePreviewCard({
   };
 
   const count = payload.nodes.length;
-  const pins = payload.nodes.map((n) => ({
-    id: n.id,
-    title: n.title,
-    lat: n.lat,
-    lng: n.lng,
-    rating: n.rating,
-    amountLabel: n.amountLabel,
-  }));
+  const pins = useMemo(
+    () =>
+      payload.nodes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        lat: n.lat,
+        lng: n.lng,
+        rating: n.rating,
+        amountLabel: n.amountLabel,
+      })),
+    [payload.nodes],
+  );
 
   return (
     <div
@@ -48,7 +53,7 @@ export function ContextWorkspacePreviewCard({
       data-workspace-preview
     >
       <div className="relative h-44">
-        <WorkspaceMapView pins={pins} compact />
+        <WorkspaceMapView pins={pins} compact preferPlaceholder />
         <button
           type="button"
           className="absolute right-2.5 top-2.5 z-[2] rounded-full bg-[#3182f6] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm"

@@ -93,8 +93,7 @@ export function applyTossWorkspaceMapCanvas(map: MapLibreMap): void {
   setPaint(map, "building", "fill-color", C.buildingFill);
   setPaint(map, "building", "fill-opacity", C.buildingOpacity);
   setPaint(map, "building", "fill-outline-color", "rgba(0,0,0,0)");
-  setPaint(map, "building-3d", "fill-extrusion-color", C.buildingFill);
-  setPaint(map, "building-3d", "fill-extrusion-opacity", C.building3dOpacity);
+  hideLayer(map, "building-3d");
 
   for (const layerId of RIMVIO_VECTOR_MUTED_LABEL_LAYERS) {
     const isWater = layerId.startsWith("water");

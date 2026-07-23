@@ -32,7 +32,6 @@ import { WorkspaceCommitPreviewSheet } from "@/components/context-workspace/work
 import { WorkspaceChatPanel } from "@/components/context-workspace/workspace-chat-panel";
 import { WorkspaceMapView } from "@/components/context-workspace/workspace-map-view";
 import { WorkspaceNodePeek } from "@/components/context-workspace/workspace-node-peek";
-import { WorkspacePinCart } from "@/components/context-workspace/workspace-pin-cart";
 import { WorkspacePromptBar } from "@/components/context-workspace/workspace-prompt-bar";
 import { copy } from "@/lib/copy/human-ko";
 import { cn } from "@/lib/utils";
@@ -135,6 +134,56 @@ export function ContextWorkspaceShell({
     visibleNodes.find((n) => !n.bookmarked)?.id ??
     visibleNodes[0]?.id ??
     null;
+
+  const mapPins = useMemo(
+    () =>
+      visibleNodes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        lat: n.lat,
+        lng: n.lng,
+        rating: n.rating,
+        amountLabel: n.amountLabel,
+        selected: n.id === selectedId,
+        bookmarked: n.bookmarked,
+        photoSpot:
+          n.tags.includes("photo_spot") ||
+          /포토|사진|photo/i.test(`${n.title} ${n.summaryKo}`),
+      })),
+    [visibleNodes, selectedId],
+  );
+
+  const onPinToggle = useCallback(
+    (id: string) => {
+      const node = visibleNodes.find((n) => n.id === id);
+      if (!node) {
+        return;
+      }
+      const eventId = contextEventId?.trim() ?? "";
+      applyWorkspaceTransition({
+        contextEventId: eventId,
+        op: "bookmark",
+        nodeIds: [id],
+        pin: !node.bookmarked,
+      });
+      if (!node.bookmarked) {
+        toast.success(copy.globe.workspacePinToast(node.title));
+      }
+    },
+    [visibleNodes, contextEventId],
+  );
+
+  const onRemovePin = useCallback(
+    (id: string) => {
+      const eventId = contextEventId?.trim() ?? "";
+      applyWorkspaceTransition({
+        contextEventId: eventId,
+        op: "remove",
+        nodeIds: [id],
+      });
+    },
+    [contextEventId],
+  );
 
   const commitPreview = useMemo(
     () => (state ? buildWorkspaceCommitPreview(state) : null),
@@ -244,21 +293,11 @@ export function ContextWorkspaceShell({
     >
       <div className="absolute inset-0">
         <WorkspaceMapView
-          pins={visibleNodes.map((n) => ({
-            id: n.id,
-            title: n.title,
-            lat: n.lat,
-            lng: n.lng,
-            rating: n.rating,
-            amountLabel: n.amountLabel,
-            selected: n.id === selectedId,
-            bookmarked: n.bookmarked,
-            photoSpot:
-              n.tags.includes("photo_spot") ||
-              /포토|사진|photo/i.test(`${n.title} ${n.summaryKo}`),
-          }))}
+          pins={mapPins}
           selectedId={selectedId}
           onSelectPin={onSelect}
+          onPinToggle={onPinToggle}
+          onRemovePin={onRemovePin}
         />
       </div>
 
@@ -378,15 +417,8 @@ export function ContextWorkspaceShell({
         </div>
       ) : null}
 
-      {/* Bottom: pin · chat · slim tools · prompt */}
+      {/* Bottom: peek · chat · slim tools · prompt (pin lives on map markers) */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] flex flex-col gap-1.5 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-20">
-        <WorkspacePinCart
-          contextEventId={eventId}
-          nodes={state.nodes}
-          selectedId={selectedId}
-          onSelect={onSelect}
-        />
-
         {showPeek && selectedNode ? (
           <WorkspaceNodePeek
             contextEventId={eventId}
@@ -435,49 +467,6 @@ export function ContextWorkspaceShell({
               {tool.label}
             </button>
           ))}
-          {selectedNode ? (
-            <>
-              <button
-                type="button"
-                className={cn(
-                  "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold shadow-[0_2px_8px_rgba(25,31,40,0.08)]",
-                  selectedNode.bookmarked
-                    ? "bg-[#191f28] text-white"
-                    : "bg-[#3182f6] text-white",
-                )}
-                onClick={() => {
-                  applyWorkspaceTransition({
-                    contextEventId: eventId,
-                    op: "bookmark",
-                    nodeIds: [selectedNode.id],
-                    pin: !selectedNode.bookmarked,
-                  });
-                  if (!selectedNode.bookmarked) {
-                    toast.success(
-                      copy.globe.workspacePinToast(selectedNode.title),
-                    );
-                  }
-                }}
-              >
-                {selectedNode.bookmarked
-                  ? copy.globe.workspacePinDone
-                  : copy.globe.workspacePinCta}
-              </button>
-              <button
-                type="button"
-                className="shrink-0 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-semibold text-[#f04452] shadow-[0_2px_8px_rgba(25,31,40,0.08)]"
-                onClick={() =>
-                  applyWorkspaceTransition({
-                    contextEventId: eventId,
-                    op: "remove",
-                    nodeIds: [selectedNode.id],
-                  })
-                }
-              >
-                빼기
-              </button>
-            </>
-          ) : null}
           <button
             type="button"
             className="shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-medium text-[#8b95a1]"

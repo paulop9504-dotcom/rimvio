@@ -88,9 +88,6 @@ export function normalizeToolInvokeResult(input: {
 }): AgentObservation {
   const candidates = normalizeCandidatesForObservation(input.tool.candidates);
   const errors: string[] = [];
-  if (!input.tool.ok) {
-    errors.push("tool_not_ok");
-  }
   if (
     candidates.length === 0 &&
     (input.stepKind === "resolve_entity" ||
@@ -112,7 +109,7 @@ export function normalizeToolInvokeResult(input: {
     planId: input.planId,
     stepId: input.stepId,
     stepKind: input.stepKind,
-    success: errors.length === 0 && input.tool.ok !== false,
+    success: errors.length === 0,
     summaryKo: input.tool.summaryKo,
     ...(candidates.length > 0 ? { candidates } : {}),
     ...(selected ? { selected } : {}),

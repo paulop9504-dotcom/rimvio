@@ -125,10 +125,8 @@ export function enforceHumanCommitGate(
   decision: AgentDecision,
   step: Pick<ActionPlanStepV1, "kind" | "status"> | null,
 ): AgentDecision {
+  void decision;
   if (step?.kind === "wait_commit") {
-    return { type: "stop" };
-  }
-  if (decision.type === "continue" && step?.kind === "wait_commit") {
     return { type: "stop" };
   }
   return decision;

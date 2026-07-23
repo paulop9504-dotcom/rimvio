@@ -46,4 +46,6 @@ export const TOSS_WORKSPACE_HIDDEN_LAYERS = [
   "park_outline",
   "boundary_country",
   "boundary_state",
+  /** Extrusion is GPU-heavy on phones — keep flat building fill only. */
+  "building-3d",
 ] as const;
