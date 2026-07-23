@@ -22,7 +22,14 @@ export {
   formatActionPlanPreviewKo,
   type ActionPlanKind,
 } from "@/lib/action-planner/build-compare-reserve-plan";
-export { tryRunActionPlanner, tryRunActionPlannerAsync } from "@/lib/action-planner/run-action-plan";
+export {
+  isTripPrepUtterance,
+  parseTripPrepSlots,
+  buildTripPrepActionPlan,
+  type TripPrepSlots,
+} from "@/lib/action-planner/build-trip-prep-plan";
+export { tryRunActionPlanner, tryRunActionPlannerAsync, executeActionPlanAsync } from "@/lib/action-planner/run-action-plan";
+export type { ExecuteActionPlanInput } from "@/lib/action-planner/run-action-plan";
 export {
   tryRunContextNlAction,
   tryRunContextNlActionAsync,
@@ -64,4 +71,6 @@ export {
 export {
   refinePlanStep,
   shouldRefinePlanStep,
+  suggestEmptyLookupRefine,
+  type RefinePlanStepInput,
 } from "@/lib/action-planner/refine-plan-step";

@@ -63,9 +63,18 @@ export type ActionPlanV1 = {
     | "filter_navigate"
     | "compare_filter"
     | "move_share"
-    | "short_tool";
+    | "short_tool"
+    | "trip_prep";
   /** Reserve/Purchase prepare → Field; revise-research stays Globe Diff only. */
   readonly requiresFieldCommit: boolean;
+  /** Present when planKind === trip_prep (stay slots for lodging tools). */
+  readonly tripPrep?: {
+    readonly destinationKo: string | null;
+    readonly nights: number | null;
+    readonly days: number | null;
+    readonly checkInIso: string | null;
+    readonly checkOutIso: string | null;
+  } | null;
 };
 
 export type ActionPlannerRunResult = {
@@ -78,4 +87,6 @@ export type ActionPlannerRunResult = {
   /** Soft graph ops applied in one `applyGraphCommands` call. */
   readonly diffBundleApplied: boolean;
   readonly diffCommandCount: number;
+  /** Set when AgentController halted mid-plan. */
+  readonly agentHalt?: "ask_user" | "stop" | null;
 };

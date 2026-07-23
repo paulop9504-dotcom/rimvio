@@ -95,7 +95,11 @@ import {
   tryRunActionPlanner,
   tryRunActionPlannerAsync,
 } from "@/lib/action-planner/run-action-plan";
+import { runAgentController } from "@/lib/agent";
+import type { AgentHistoryTurn } from "@/lib/agent/types";
 import type { ActionPlanV1, ActionPlannerRunResult } from "@/lib/action-planner/types";
+import { readActionPlanUi } from "@/lib/action-planner/action-plan-ui-store";
+import { readWorkspaceChat } from "@/lib/context-workspace/workspace-chat-store";
 
 export type NlPipelineInput = {
   readonly utterance: string;
@@ -103,6 +107,8 @@ export type NlPipelineInput = {
   readonly anchorLat?: number | null;
   readonly anchorLng?: number | null;
   readonly contextLabelKo?: string | null;
+  /** Conversation Context — optional; Workspace chat used when omitted. */
+  readonly history?: readonly AgentHistoryTurn[] | null;
 };
 
 export type NlPipelineTrace = {
@@ -116,6 +122,32 @@ export type NlPipelineRun = {
   readonly result: ContextNlActionResult | null;
   readonly trace: NlPipelineTrace;
 };
+
+function resolveAgentHistory(
+  input: NlPipelineInput,
+): readonly AgentHistoryTurn[] | null {
+  if (input.history != null) {
+    return input.history;
+  }
+  const turns = readWorkspaceChat(input.contextEventId);
+  if (turns.length === 0) {
+    return null;
+  }
+  return turns.slice(-12).map((t) => ({
+    role: t.role,
+    content: t.text,
+  }));
+}
+
+function resolveCurrentPlanForAgent(
+  contextEventId: string,
+): ActionPlanV1 | null {
+  const plan = readActionPlanUi();
+  if (!plan) {
+    return null;
+  }
+  return plan.contextEventId === contextEventId.trim() ? plan : null;
+}
 
 function resolveDiscoveryPlaceIds(contextEventId: string): string[] {
   const ids = new Set<string>();
@@ -1217,7 +1249,21 @@ export async function runNaturalLanguagePipelineAsync(
     pushStage(visited, "entity_resolver");
     pushStage(visited, "intent_parser");
     pushStage(visited, "action_planner");
-    const planned = await tryRunActionPlannerAsync(input);
+    const agent = await runAgentController({
+      utterance: input.utterance,
+      contextEventId,
+      anchorLat: input.anchorLat,
+      anchorLng: input.anchorLng,
+      contextLabelKo: input.contextLabelKo,
+      history: resolveAgentHistory(input),
+      currentPlan: resolveCurrentPlanForAgent(contextEventId),
+      useLlm: true,
+      maxIterations: 3,
+    });
+    const planned =
+      agent.ok
+        ? agent.run
+        : await tryRunActionPlannerAsync(input);
     if (planned) {
       pushStage(visited, "tool_router");
       pushStage(visited, "graph_command_ir");
@@ -1242,12 +1288,16 @@ export async function runNaturalLanguagePipelineAsync(
         contextEventId,
         graph: readSessionGraph(contextEventId),
       });
+      const assistantReplyKo =
+        agent.ok && agent.decision.type === "ask_user"
+          ? agent.assistantReplyKo
+          : planned.assistantReplyKo;
       return {
         result: {
           ok: true,
           via: "action_plan",
           contextEventId,
-          assistantReplyKo: planned.assistantReplyKo,
+          assistantReplyKo,
           reservedOpIds: planned.reservedOpIds,
           actionPlan: planned.plan,
           waitingCommit,

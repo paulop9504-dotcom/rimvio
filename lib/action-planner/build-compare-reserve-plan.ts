@@ -14,6 +14,10 @@ import {
 } from "@/lib/action-planner/parse-nl-intent-chain";
 import { composeActionPlanFromAtoms } from "@/lib/action-planner/compose-action-plan-from-atoms";
 import {
+  buildTripPrepActionPlan,
+  isTripPrepUtterance,
+} from "@/lib/action-planner/build-trip-prep-plan";
+import {
   resolveLookupToolId,
   resolveToolIdForIntent,
   type PlannerLookupDomain,
@@ -147,7 +151,8 @@ export type ActionPlanKind =
   | "filter_navigate"
   | "compare_filter"
   | "move_share"
-  | "short_tool";
+  | "short_tool"
+  | "trip_prep";
 
 /**
  * True when utterance needs a multi-step plan (not a single Graph Command).
@@ -156,6 +161,9 @@ export function isCompoundActionUtterance(utterance: string): boolean {
   const text = normalize(utterance);
   if (!text) {
     return false;
+  }
+  if (isTripPrepUtterance(text)) {
+    return true;
   }
   const chain = parseNlIntentChain(text);
   if (shouldRunMultiIntentPlanner(chain)) {
@@ -801,6 +809,7 @@ export function buildActionPlan(input: {
     }
   }
   return (
+    buildTripPrepActionPlan(input) ??
     buildCompareReserveActionPlan(input) ??
     buildCompareFilterActionPlan(input) ??
     buildSearchReserveActionPlan(input) ??

@@ -138,7 +138,8 @@ export type ContextWorkspaceOpenSource =
   | "hotel_search"
   | "transition"
   | "restore"
-  | "scout_patch";
+  | "scout_patch"
+  | "trip_prep";
 
 export type ContextWorkspaceOpenDetail = {
   readonly contextEventId: string;

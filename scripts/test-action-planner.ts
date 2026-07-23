@@ -7,7 +7,9 @@
 import assert from "node:assert/strict";
 import {
   buildCompareReserveActionPlan,
+  buildTripPrepActionPlan,
   isCompoundActionUtterance,
+  isTripPrepUtterance,
   resolvePlanEntityLabel,
   tryRunActionPlanner,
   tryRunContextNlAction,
@@ -94,6 +96,18 @@ assert.equal(
   true,
 );
 assert.equal(isCompoundActionUtterance("A호텔 고정해"), false);
+assert.equal(isTripPrepUtterance("제주도 3박4일 여행 준비해줘"), true);
+assert.equal(isCompoundActionUtterance("제주도 3박4일 여행 준비해줘"), true);
+{
+  const trip = buildTripPrepActionPlan({
+    utterance: "제주도 3박4일 여행 준비해줘",
+    contextEventId: "evt:trip",
+    referenceDateIso: "2026-07-24",
+  });
+  assert.ok(trip);
+  assert.equal(trip!.planKind, "trip_prep");
+  assert.equal(trip!.tripPrep?.nights, 3);
+}
 
 {
   const plan = buildCompareReserveActionPlan({

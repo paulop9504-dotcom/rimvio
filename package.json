@@ -147,6 +147,7 @@
     "test:nl-pipeline": "npx tsx scripts/test-nl-pipeline.ts",
     "test:cursor-os-spine": "npx tsx scripts/test-cursor-os-spine.ts",
     "test:action-planner": "npx tsx scripts/test-action-planner.ts",
+    "test:agent-layer": "npx tsx scripts/test-agent-layer.ts",
     "test:context-os-engines": "npx tsx scripts/test-context-os-engines.ts",
     "test:research-engine": "npx tsx scripts/test-research-engine.ts",
     "test:intent-relationship": "npx tsx scripts/test-intent-relationship.ts",

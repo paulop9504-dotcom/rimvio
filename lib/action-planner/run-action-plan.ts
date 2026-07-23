@@ -42,9 +42,25 @@ import {
 } from "@/lib/graph-command/stamp-search-tool-results-to-diff";
 import { emitToolSearchHubAction } from "@/lib/graph-command/emit-tool-search-hub-action";
 import { invokeRimvioTool, invokeRimvioToolAsync } from "@/lib/tool-registry";
-import type { ToolInvokeInput, RimvioToolId } from "@/lib/tool-registry";
+import type { ToolInvokeInput, RimvioToolId, ToolInvokeResult } from "@/lib/tool-registry";
 import { resolveLookupToolId } from "@/lib/rule-engine/resolve-tool-id";
 import { writeActionPlanUi } from "@/lib/action-planner/action-plan-ui-store";
+import { agentController } from "@/lib/agent/agent-controller-facade";
+import { createObservation } from "@/lib/agent/observation";
+import type { AgentHistoryTurn, AgentObservation } from "@/lib/agent/types";
+import {
+  AGENT_MAX_STEPS,
+  bumpLoopIteration,
+  bumpReplan,
+  bumpRefine,
+  bumpStepExecuted,
+  canAgentRefine,
+  canAgentReplan,
+  createAgentSafetyBudget,
+  enforceHumanCommitGate,
+  isAgentLoopExhausted,
+  safetyHaltMessageKo,
+} from "@/lib/agent/agent-safety-policy";
 
 function markStep(
   plan: ActionPlanV1,
@@ -648,40 +664,37 @@ export function tryRunActionPlanner(input: {
   };
 }
 
-/**
- * Live Action Planner ? hotel.lookup / restaurant via LiteAPI + Google Places.
- */
-export async function tryRunActionPlannerAsync(input: {
+export type ExecuteActionPlanInput = {
   utterance: string;
   contextEventId: string;
   anchorLat?: number | null;
   anchorLng?: number | null;
   contextLabelKo?: string | null;
-}): Promise<ActionPlannerRunResult | null> {
-  if (!isCompoundActionUtterance(input.utterance)) {
-    return null;
-  }
+  /** Per-step AgentController.observe (default true). */
+  enableStepObserve?: boolean;
+  /** Forwarded to agentController.observe — LLM stays outside Executor. */
+  observeUseLlm?: boolean;
+  history?: readonly AgentHistoryTurn[] | null;
+  /** Conversation context — passed into replan Planner. */
+  previousObservations?: readonly AgentObservation[] | null;
+};
 
+/**
+ * Execute an existing ActionPlanV1 (Agent refine/replan re-entry).
+ * Skips steps already done/skipped. Never Reality Commit.
+ */
+export async function executeActionPlanAsync(
+  planInput: ActionPlanV1,
+  input: ExecuteActionPlanInput,
+): Promise<ActionPlannerRunResult> {
   const contextEventId = input.contextEventId.trim();
-  if (!contextEventId) {
-    return null;
-  }
-
   ensureSessionGraph({
     contextEventId,
     anchorLat: input.anchorLat,
     anchorLng: input.anchorLng,
   });
 
-  let plan = buildActionPlan({
-    utterance: input.utterance,
-    contextEventId,
-    graph: readSessionGraph(contextEventId),
-  });
-  if (!plan) {
-    return null;
-  }
-
+  let plan = planInput;
   const reservedOpIds: string[] = [];
   let pickedLabelKo: string | null = null;
   const chain = parseNlIntentChain(input.utterance);
@@ -693,12 +706,70 @@ export async function tryRunActionPlannerAsync(input: {
     anchorLng: input.anchorLng,
   };
   const buffer = createWorkingSetDiffBuffer();
+  const enableStepObserve = input.enableStepObserve !== false;
+  let stepIndex = 0;
+  let lastTool: ToolInvokeResult | null = null;
+  let agentHalt: "ask_user" | "stop" | null = null;
+  let haltMessageKo: string | null = null;
+  let safety = createAgentSafetyBudget();
+  const observationTrail: AgentObservation[] = [
+    ...(input.previousObservations ?? []),
+  ];
 
-  for (const step of plan.steps) {
+  const finish = (): ActionPlannerRunResult => {
+    const pickLine = pickedLabelKo
+      ? `${pickedLabelKo} reserve prep queued`
+      : plan.requiresFieldCommit
+        ? "reserve prep queued"
+        : "same condition retuned";
+    // Human Field Commit gate — Agent never Reality-commits.
+    const waitingCommit =
+      plan.requiresFieldCommit &&
+      (reservedOpIds.length > 0 ||
+        plan.steps.some((step) => step.kind === "wait_commit"));
+    return {
+      ok: true,
+      plan,
+      assistantReplyKo: haltMessageKo
+        ? haltMessageKo
+        : `${preview}\n\n${pickLine}`,
+      reservedOpIds,
+      pickedLabelKo,
+      waitingCommit,
+      diffBundleApplied: buffer.flushed && buffer.commandCount > 0,
+      diffCommandCount: buffer.commandCount,
+      agentHalt,
+    };
+  };
+
+  while (stepIndex < plan.steps.length) {
+    safety = bumpLoopIteration(safety);
+    const exhausted = isAgentLoopExhausted(safety);
+    if (exhausted) {
+      agentHalt = "ask_user";
+      haltMessageKo = safetyHaltMessageKo(exhausted);
+      return finish();
+    }
+
+    const step = plan.steps[stepIndex]!;
+    if (step.status === "done" || step.status === "skipped") {
+      stepIndex += 1;
+      continue;
+    }
+    lastTool = null;
+    safety = bumpStepExecuted(safety);
+    if (safety.stepsExecuted > AGENT_MAX_STEPS) {
+      agentHalt = "ask_user";
+      haltMessageKo = safetyHaltMessageKo("max_steps");
+      return finish();
+    }
+
     if (step.kind === "resolve_entity" && step.entityLabelKo) {
       const args = resolveEntityToolArgs(step, input.utterance, anchors);
       const toolResult = await invokeRimvioToolAsync(args.toolId, args.invoke);
-      if (toolResult.candidates?.length) {
+      lastTool = toolResult;
+      const hasHits = Boolean(toolResult.candidates?.length);
+      if (hasHits) {
         const ordered = injectLookupCandidates({
           contextEventId,
           candidates: toolResult.candidates,
@@ -709,19 +780,23 @@ export async function tryRunActionPlannerAsync(input: {
         });
         buffer.domain = args.domain === "poi" ? "poi" : args.domain;
         buffer.candidates.push(...ordered.slice(0, 4));
+        if (!buffer.pinLabels.includes(args.pinLabelKo)) {
+          buffer.pinLabels.push(args.pinLabelKo);
+        }
+        plan = markStep(plan, step.id, "done", {
+          noteKo: toolResult.summaryKo,
+          toolId: args.toolId,
+          entityLabelKo: args.pinLabelKo,
+        });
+      } else {
+        // Empty hotel.search — blocked so Agent → refinePlanStep (not silent done).
+        plan = markStep(plan, step.id, "blocked", {
+          noteKo: toolResult.summaryKo || "후보 0곳",
+          toolId: args.toolId,
+          entityLabelKo: args.pinLabelKo,
+        });
       }
-      if (!buffer.pinLabels.includes(args.pinLabelKo)) {
-        buffer.pinLabels.push(args.pinLabelKo);
-      }
-      plan = markStep(plan, step.id, "done", {
-        noteKo: toolResult.summaryKo,
-        toolId: args.toolId,
-        entityLabelKo: args.pinLabelKo,
-      });
-      continue;
-    }
-
-    if (step.kind === "graph_command" && step.graphCommand) {
+    } else if (step.kind === "graph_command" && step.graphCommand) {
       if (step.graphCommand.op === "reserve_prep" || step.graphCommand.op === "payment_prep") {
         if (!buffer.flushed) {
           await flushWorkingSetDiffAsync({
@@ -744,51 +819,47 @@ export async function tryRunActionPlannerAsync(input: {
           plan = markStep(plan, step.id, "blocked", {
             noteKo: "reserve prep failed",
           });
-          continue;
-        }
-        const applied = await applyGraphCommandsAsync({
-          contextEventId,
-          commands: [
-            {
+        } else {
+          const applied = await applyGraphCommandsAsync({
+            contextEventId,
+            commands: [
+              {
+                op: step.graphCommand.op,
+                targetRef: firstVisible
+                  ? { labelKo: firstVisible.labelKo, nodeId: firstVisible.id }
+                  : { labelKo: targetLabel },
+              },
+            ],
+            anchorLat: input.anchorLat,
+            anchorLng: input.anchorLng,
+            contextLabelKo: input.contextLabelKo,
+          });
+          if (applied.ok) {
+            reservedOpIds.push(...applied.reservedOpIds);
+          }
+          plan = markStep(plan, step.id, "done", {
+            graphCommand: {
               op: step.graphCommand.op,
-              targetRef: firstVisible
-                ? { labelKo: firstVisible.labelKo, nodeId: firstVisible.id }
-                : { labelKo: targetLabel },
+              targetRef: { labelKo: targetLabel },
             },
-          ],
-          anchorLat: input.anchorLat,
-          anchorLng: input.anchorLng,
+            noteKo: applied.ok ? "field ready" : "reserve prep failed",
+          });
+        }
+      } else {
+        const ok = await flushWorkingSetDiffAsync({
+          plan,
+          buffer,
+          compareCommand: step.graphCommand,
+          ...anchors,
           contextLabelKo: input.contextLabelKo,
         });
-        if (applied.ok) {
-          reservedOpIds.push(...applied.reservedOpIds);
-        }
-        plan = markStep(plan, step.id, "done", {
-          graphCommand: {
-            op: step.graphCommand.op,
-            targetRef: { labelKo: targetLabel },
-          },
-          noteKo: applied.ok ? "field ready" : "reserve prep failed",
+        plan = markStep(plan, step.id, ok ? "done" : "blocked", {
+          noteKo: ok
+            ? `Diff ?? ${buffer.commandCount}?`
+            : "Diff ?? ??",
         });
-        continue;
       }
-
-      const ok = await flushWorkingSetDiffAsync({
-        plan,
-        buffer,
-        compareCommand: step.graphCommand,
-        ...anchors,
-        contextLabelKo: input.contextLabelKo,
-      });
-      plan = markStep(plan, step.id, ok ? "done" : "blocked", {
-        noteKo: ok
-          ? `Diff ?? ${buffer.commandCount}?`
-          : "Diff ?? ??",
-      });
-      continue;
-    }
-
-    if (step.kind === "tool" && step.toolId === "ranking.pick") {
+    } else if (step.kind === "tool" && step.toolId === "ranking.pick") {
       if (!buffer.flushed) {
         await flushWorkingSetDiffAsync({
           plan,
@@ -827,6 +898,7 @@ export async function tryRunActionPlannerAsync(input: {
             typeof n.attrs.amountLabel === "string" ? n.attrs.amountLabel : null,
         })),
       });
+      lastTool = toolResult;
       pickedLabelKo = toolResult.pickedLabelKo ?? pool[0]?.labelKo ?? null;
       stampOfferOntoPickedNode({
         contextEventId,
@@ -851,10 +923,7 @@ export async function tryRunActionPlannerAsync(input: {
       plan = markStep(plan, step.id, "done", {
         noteKo: toolResult.summaryKo,
       });
-      continue;
-    }
-
-    if (step.kind === "soft_navigate") {
+    } else if (step.kind === "soft_navigate") {
       if (!buffer.flushed) {
         await flushWorkingSetDiffAsync({
           plan,
@@ -873,40 +942,186 @@ export async function tryRunActionPlannerAsync(input: {
       plan = markStep(plan, step.id, soft ? "done" : "blocked", {
         noteKo: soft?.assistantReplyKo ?? "navigate miss",
       });
-      if (soft?.mapsUrl) {
-        // surface maps via assistant line
-      }
-      continue;
-    }
-
-    if (step.kind === "wait_commit") {
+    } else if (step.kind === "wait_commit") {
       plan = markStep(plan, step.id, "done", {
-        noteKo: "????? ???? ????",
+        noteKo: "승인 대기 · Field에서 확정",
       });
-      break;
+    } else {
+      plan = markStep(plan, step.id, "skipped");
     }
 
-    plan = markStep(plan, step.id, "skipped");
+    const finishedStep =
+      plan.steps.find((s) => s.id === step.id) ?? plan.steps[stepIndex]!;
+
+    if (enableStepObserve) {
+      const observation = createObservation({
+        plan,
+        step: finishedStep,
+        tool: lastTool,
+        reservedOpIds,
+        pickedLabelKo,
+        diffBundleApplied: buffer.flushed && buffer.commandCount > 0,
+        diffCommandCount: buffer.commandCount,
+      });
+      observationTrail.push(observation);
+      // LLM judgment stays in AgentController — Executor only calls observe.
+      let decision = await agentController.observe(observation, {
+        utterance: input.utterance,
+        history: input.history,
+        useLlm: input.observeUseLlm === true,
+        plan,
+        previousObservations: observationTrail,
+        refineAttempt: safety.refineCount,
+      });
+      decision = enforceHumanCommitGate(decision, finishedStep);
+
+      switch (decision.type) {
+        case "continue":
+          // wait_commit → stop for human Field approval (never auto-commit).
+          if (finishedStep.kind === "wait_commit") {
+            agentHalt = "stop";
+            haltMessageKo = safetyHaltMessageKo("wait_commit_human_gate");
+            return finish();
+          }
+          stepIndex += 1;
+          break;
+        case "replan": {
+          if (!canAgentReplan(safety)) {
+            agentHalt = "ask_user";
+            haltMessageKo = safetyHaltMessageKo("max_replans");
+            return finish();
+          }
+          const nextPlan = await agentController.replan({
+            utterance: input.utterance,
+            contextEventId,
+            reason: decision.reason,
+            history: input.history,
+            useLlm: input.observeUseLlm === true,
+            currentPlan: plan,
+            previousObservations: observationTrail,
+          });
+          if (nextPlan) {
+            safety = bumpReplan(safety);
+            plan = nextPlan;
+            stepIndex = 0;
+            buffer.flushed = false;
+            buffer.candidates = [];
+            buffer.pinLabels = [];
+            buffer.commandCount = 0;
+          } else {
+            stepIndex += 1;
+          }
+          break;
+        }
+        case "refine": {
+          if (!canAgentRefine(safety)) {
+            if (canAgentReplan(safety)) {
+              const nextPlan = await agentController.replan({
+                utterance: input.utterance,
+                contextEventId,
+                reason:
+                  decision.changes?.reasonKo ||
+                  "refine exhausted — rebuild plan",
+                history: input.history,
+                useLlm: input.observeUseLlm === true,
+                currentPlan: plan,
+                previousObservations: observationTrail,
+              });
+              if (nextPlan) {
+                safety = bumpReplan(safety);
+                plan = nextPlan;
+                stepIndex = 0;
+                buffer.flushed = false;
+                buffer.candidates = [];
+                buffer.pinLabels = [];
+                buffer.commandCount = 0;
+                break;
+              }
+            }
+            agentHalt = "ask_user";
+            haltMessageKo = safetyHaltMessageKo("max_refines");
+            return finish();
+          }
+          // Agent judgment → search condition change → refinePlanStep.
+          const refined = agentController.refine(plan, decision);
+          if (refined) {
+            safety = bumpRefine(safety);
+            plan = refined;
+            const nextPending = plan.steps.findIndex(
+              (s) => s.status === "pending",
+            );
+            stepIndex = nextPending >= 0 ? nextPending : stepIndex + 1;
+          } else {
+            stepIndex += 1;
+          }
+          break;
+        }
+        case "ask_user":
+          agentHalt = "ask_user";
+          haltMessageKo = decision.message;
+          return finish();
+        case "stop":
+          agentHalt = "stop";
+          if (finishedStep.kind === "wait_commit" || plan.requiresFieldCommit) {
+            haltMessageKo =
+              haltMessageKo ?? safetyHaltMessageKo("wait_commit_human_gate");
+          }
+          return finish();
+        default:
+          stepIndex += 1;
+          break;
+      }
+    } else if (finishedStep.kind === "wait_commit") {
+      break;
+    } else {
+      stepIndex += 1;
+    }
   }
 
-  const pickLine = pickedLabelKo
-    ? `${pickedLabelKo} reserve prep queued`
-    : plan.requiresFieldCommit
-      ? "reserve prep queued"
-      : "same condition retuned";
-  const waitingCommit =
-    plan.requiresFieldCommit &&
-    (reservedOpIds.length > 0 ||
-      plan.steps.some((step) => step.kind === "wait_commit"));
+  return finish();
+}
 
-  return {
-    ok: true,
-    plan,
-    assistantReplyKo: `${preview}\n\n${pickLine}`,
-    reservedOpIds,
-    pickedLabelKo,
-    waitingCommit,
-    diffBundleApplied: buffer.flushed && buffer.commandCount > 0,
-    diffCommandCount: buffer.commandCount,
-  };
+/**
+ * Live Action Planner — buildActionPlan then executeActionPlanAsync.
+ */
+export async function tryRunActionPlannerAsync(input: {
+  utterance: string;
+  contextEventId: string;
+  anchorLat?: number | null;
+  anchorLng?: number | null;
+  contextLabelKo?: string | null;
+}): Promise<ActionPlannerRunResult | null> {
+  if (!isCompoundActionUtterance(input.utterance)) {
+    return null;
+  }
+
+  const contextEventId = input.contextEventId.trim();
+  if (!contextEventId) {
+    return null;
+  }
+
+  ensureSessionGraph({
+    contextEventId,
+    anchorLat: input.anchorLat,
+    anchorLng: input.anchorLng,
+  });
+
+  const plan = buildActionPlan({
+    utterance: input.utterance,
+    contextEventId,
+    graph: readSessionGraph(contextEventId),
+  });
+  if (!plan) {
+    return null;
+  }
+
+  return executeActionPlanAsync(plan, {
+    utterance: input.utterance,
+    contextEventId,
+    anchorLat: input.anchorLat,
+    anchorLng: input.anchorLng,
+    contextLabelKo: input.contextLabelKo,
+    enableStepObserve: true,
+    observeUseLlm: false,
+  });
 }
