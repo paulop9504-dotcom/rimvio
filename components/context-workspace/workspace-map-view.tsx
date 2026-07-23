@@ -250,10 +250,12 @@ function MapLibreWorkspaceMap({
   const onPinToggleRef = useRef(onPinToggle);
   const onRemovePinRef = useRef(onRemovePin);
   const onBgRef = useRef(onBackgroundActivate);
-  onSelectRef.current = onSelectPin;
-  onPinToggleRef.current = onPinToggle;
-  onRemovePinRef.current = onRemovePin;
-  onBgRef.current = onBackgroundActivate;
+  useEffect(() => {
+    onSelectRef.current = onSelectPin;
+    onPinToggleRef.current = onPinToggle;
+    onRemovePinRef.current = onRemovePin;
+    onBgRef.current = onBackgroundActivate;
+  }, [onSelectPin, onPinToggle, onRemovePin, onBackgroundActivate]);
   const [ready, setReady] = useState(false);
   const bounds = useMemo(() => pinBounds(pins), [pins]);
   const mobile = useMemo(() => isCoarsePointerDevice(), []);
@@ -478,7 +480,9 @@ function AppleMapKitWorkspaceMap(props: WorkspaceMapViewProps) {
   const lastPinIdsRef = useRef<string>("");
   const [mapkitLive, setMapkitLive] = useState(false);
   const onSelectPinRef = useRef(props.onSelectPin);
-  onSelectPinRef.current = props.onSelectPin;
+  useEffect(() => {
+    onSelectPinRef.current = props.onSelectPin;
+  }, [props.onSelectPin]);
 
   useEffect(() => {
     if (props.compact || props.preferPlaceholder) {
