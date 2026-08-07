@@ -110,7 +110,7 @@ export type WorkspaceMapViewProps = {
   routeLineCoords?: readonly [number, number][];
   className?: string;
   compact?: boolean;
-  /** Skip WebGL — chat teaser / low-power path. */
+  /** Skip WebGL — chat teaser only. Do not use for mobile RealityMap. */
   preferPlaceholder?: boolean;
   /** Scope Brief Replay subscription. */
   contextEventId?: string | null;
@@ -1080,7 +1080,8 @@ function MapLibreWorkspaceMap({
       duration: 620,
       essential: true,
     });
-  }, [ready, selectedId, compact]);
+    // pins: re-fly when Reality Jump upserts a pin after selectedId is already set
+  }, [ready, selectedId, compact, pins]);
 
   // Project selected pin → screen for legacy single Object Callout / Capability bloom.
   useEffect(() => {
@@ -1327,7 +1328,7 @@ function AppleMapKitWorkspaceMap(props: WorkspaceMapViewProps) {
   }, [props.onSelectPin]);
 
   useEffect(() => {
-    if (props.compact || props.preferPlaceholder) {
+    if (props.preferPlaceholder) {
       return;
     }
     let cancelled = false;
@@ -1357,7 +1358,7 @@ function AppleMapKitWorkspaceMap(props: WorkspaceMapViewProps) {
       mapRef.current = null;
       setMapkitLive(false);
     };
-  }, [props.compact, props.preferPlaceholder]);
+  }, [props.preferPlaceholder]);
 
   useEffect(() => {
     if (!mapkitLive || !window.mapkit || !mapRef.current) {
@@ -1401,7 +1402,7 @@ function AppleMapKitWorkspaceMap(props: WorkspaceMapViewProps) {
     }
   }, [mapkitLive, props.pins, props.selectedId]);
 
-  if (props.compact || props.preferPlaceholder || !mapkitLive) {
+  if (props.preferPlaceholder || !mapkitLive) {
     return (
       <div className={cn("h-full w-full", props.className)}>
         <div
@@ -1422,7 +1423,10 @@ function AppleMapKitWorkspaceMap(props: WorkspaceMapViewProps) {
 }
 
 export function WorkspaceMapView(props: WorkspaceMapViewProps) {
-  if (props.preferPlaceholder || props.compact) {
+  // Placeholder = chat teaser / deliberately no WebGL — NOT mobile density.
+  // Mobile RealityMap passes `compact` for denser camera framing but still needs MapLibre
+  // (otherwise iOS PWA shows pins on grey with no pan/tiles).
+  if (props.preferPlaceholder) {
     return (
       <div className={cn("h-full w-full", props.className)}>
         <PlaceholderPinMap {...props} />

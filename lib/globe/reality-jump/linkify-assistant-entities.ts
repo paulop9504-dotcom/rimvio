@@ -158,9 +158,20 @@ function targetsFromResolver(text: string): RealityJumpTarget[] {
   return out;
 }
 
+function jumpPriority(target: RealityJumpTarget): number {
+  // POI / airport beats district when span length ties (푸동 → PVG).
+  // Use end-anchored codes — avoid `:sha` matching `:shanghai`.
+  if (/:(?:pvg|sha|kix|nrt|hnd|icn|gmp|usj)$/iu.test(target.placeId)) {
+    return 3;
+  }
+  if (target.kind === "activity" || target.kind === "amenity") return 2;
+  if (target.kind === "lodging" || target.kind === "eatery") return 2;
+  return 1;
+}
+
 /**
  * Extract Reality Jump targets from assistant / itinerary prose.
- * Longer spans win on overlap.
+ * Longer spans win on overlap; POI beats district on ties.
  */
 export function extractRealityJumpTargets(
   text: string,
@@ -174,6 +185,8 @@ export function extractRealityJumpTargets(
     const lenA = a.span.end - a.span.start;
     const lenB = b.span.end - b.span.start;
     if (lenB !== lenA) return lenB - lenA;
+    const prio = jumpPriority(b) - jumpPriority(a);
+    if (prio !== 0) return prio;
     return a.span.start - b.span.start;
   });
   const picked: RealityJumpTarget[] = [];

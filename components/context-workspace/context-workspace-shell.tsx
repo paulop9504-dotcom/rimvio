@@ -70,6 +70,7 @@ import { resolveWorkspaceFocusNode } from "@/lib/context-workspace/resolve-works
 import { suggestWorkspaceCapsuleTitle } from "@/lib/context-workspace/suggest-workspace-capsule-title";
 import { renameContextEventTitle } from "@/lib/context-workspace/rename-context-event-title";
 import {
+  projectRealityJumpToWorkspace,
   subscribeRealityJump,
 } from "@/lib/globe/reality-jump";
 import { WorkspaceMapView } from "@/components/context-workspace/workspace-map-view";
@@ -327,17 +328,35 @@ export function ContextWorkspaceShell({
     });
     const unsubJump = subscribeRealityJump((detail) => {
       if (detail.contextEventId !== contextEventId?.trim()) return;
+      // Entity Projection: upsert → overview pins → FlyTo → Callout / Peek
+      const projected = projectRealityJumpToWorkspace({
+        contextEventId: detail.contextEventId,
+        placeId: detail.placeId,
+        labelKo: detail.title,
+        lat: detail.lat,
+        lng: detail.lng,
+        reelKind: detail.kind,
+      });
       const live = readContextWorkspace(detail.contextEventId);
-      if (!live) return;
-      const hit = resolveWorkspaceFocusNode(
-        live.nodes,
-        detail.placeId,
-        detail.title,
-      );
-      if (!hit) return;
-      setFocusedId(hit.id);
+      const nodeId =
+        projected?.nodeId ??
+        (live
+          ? resolveWorkspaceFocusNode(
+              live.nodes,
+              detail.placeId,
+              detail.title,
+            )?.id
+          : null);
+      if (!nodeId) return;
+      // Leave lodging/eatery slot so Reality POI is on the map pin set.
+      setMapFocusKind(null);
+      setExpanded(true);
+      setFocusedId(nodeId);
+      // Object Peek must open (same as place-list select) — don't close it.
       setPeekClosed(false);
       setListOpen(false);
+      openCalloutWindow({ entityId: nodeId });
+      refresh();
     });
     return () => {
       unsubUpdate();
@@ -504,7 +523,7 @@ export function ContextWorkspaceShell({
 
   const mapPins = useMemo((): WorkspaceMapPin[] => {
     const ctx = contextEventId?.trim() ?? "";
-    const venuePins: WorkspaceMapPin[] = mapFocusNodes.map((n) => ({
+    const toPin = (n: (typeof mapFocusNodes)[number]): WorkspaceMapPin => ({
       id: n.id,
       title: n.title,
       lat: n.lat,
@@ -527,7 +546,25 @@ export function ContextWorkspaceShell({
         /포토|사진|photo/i.test(`${n.title} ${n.summaryKo}`),
       legHintKo:
         n.id === venueSelectedId ? legHintForNode(mapFocusNodes, n.id) : null,
-    }));
+    });
+
+    const venuePins: WorkspaceMapPin[] = mapFocusNodes.map(toPin);
+
+    // Reality Jump / focus orphan — keep camera target on map even if domain
+    // slot filter (lodging…) would hide a POI/airport pin.
+    if (
+      venueSelectedId &&
+      !venuePins.some((p) => p.id === venueSelectedId)
+    ) {
+      const orphan = visibleNodes.find(
+        (n) =>
+          n.id === venueSelectedId &&
+          isLiveWorkspacePlaceNode(n) &&
+          Number.isFinite(n.lat) &&
+          Number.isFinite(n.lng),
+      );
+      if (orphan) venuePins.push(toPin(orphan));
+    }
 
     const event = ctx
       ? findLifeEventCandidate(ctx) ?? recoverGlobeContextEventFromPin(ctx)
@@ -547,6 +584,7 @@ export function ContextWorkspaceShell({
     return [...venuePins, ...mediaPins];
   }, [
     mapFocusNodes,
+    visibleNodes,
     selectedId,
     venueSelectedId,
     contextEventId,

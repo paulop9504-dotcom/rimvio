@@ -57,4 +57,28 @@ export const AIRPORT_CATALOG: readonly EntityCatalogEntry[] = [
     geoId: "geo:kr:gmp",
     confidence: 0.95,
   },
+  {
+    id: "airport:pvg",
+    labelKo: "푸동 국제공항",
+    queryKo: "푸동 국제공항",
+    kind: "Airport",
+    pattern:
+      /푸동(?:\s*국제)?\s*공항|\bpvg\b|pudong(?:\s*international)?(?:\s*airport)?|浦东(?:国际)?机场/iu,
+    aliases: ["PVG", "Pudong", "푸동공항", "浦东机场"],
+    semanticPath: ["Airport", "Transit", "Air"],
+    geoId: "geo:cn:shanghai:pvg",
+    confidence: 0.95,
+  },
+  {
+    id: "airport:sha",
+    labelKo: "홍차오 국제공항",
+    queryKo: "홍차오 국제공항",
+    kind: "Airport",
+    pattern:
+      /홍차오(?:\s*국제)?\s*공항|\bsha\b|hongqiao(?:\s*international)?(?:\s*airport)?|虹桥(?:国际)?机场/iu,
+    aliases: ["SHA", "Hongqiao", "홍차오공항", "虹桥机场"],
+    semanticPath: ["Airport", "Transit", "Air"],
+    geoId: "geo:cn:shanghai:sha",
+    confidence: 0.95,
+  },
 ];
