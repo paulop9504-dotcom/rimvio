@@ -9,6 +9,11 @@ function regionFromText(text: string): string | null {
   if (/도쿄|tokyo/iu.test(text)) return "도쿄";
   if (/교토|kyoto/iu.test(text)) return "교토";
   if (/고베|kobe/iu.test(text)) return "고베";
+  if (/나고야|nagoya/iu.test(text)) return "나고야";
+  if (/후쿠오카|fukuoka/iu.test(text)) return "후쿠오카";
+  if (/센다이|sendai/iu.test(text)) return "센다이";
+  if (/삿포로|sapporo/iu.test(text)) return "삿포로";
+  if (/요코하마|yokohama/iu.test(text)) return "요코하마";
   if (/일본|japan/iu.test(text)) return "일본";
   if (
     /대전|daejeon|서울|seoul|부산|busan|인천|incheon|대구|daegu|광주|gwangju|울산|ulsan|세종|세종시/iu.test(
@@ -26,6 +31,22 @@ function regionFromText(text: string): string | null {
     if (/세종/iu.test(text)) return "세종";
   }
   if (/한국|korea|전국\s*노선|한반도/iu.test(text)) return "한국";
+  // Overseas metros — recognize region so we fail-soft (never steal Osaka / essay).
+  if (/홍콩|hong\s*kong|\bhk\b|港鐵|\bmtr\b/iu.test(text)) return "홍콩";
+  if (/상하이|shanghai|上海/iu.test(text)) return "상하이";
+  if (/베이징|beijing|北京/iu.test(text)) return "베이징";
+  if (/선전|shenzhen|深圳/iu.test(text)) return "선전";
+  if (/타이베이|taipei|台北|臺北/iu.test(text)) return "타이베이";
+  if (/싱가포르|singapore|sg\s*mrt|\bmrt\b/iu.test(text) && /싱가포르|singapore/iu.test(text)) {
+    return "싱가포르";
+  }
+  if (/방콕|bangkok|BTS|MRT/iu.test(text) && /방콕|bangkok/iu.test(text)) {
+    return "방콕";
+  }
+  if (/뉴욕|new\s*york|\bnyc\b/iu.test(text)) return "뉴욕";
+  if (/런던|london/iu.test(text)) return "런던";
+  if (/파리|paris/iu.test(text)) return "파리";
+  if (/베를린|berlin/iu.test(text)) return "베를린";
   return null;
 }
 
@@ -70,7 +91,7 @@ export function resolveRealityNeedFromUtterance(
   ) {
     needId = "metro_network";
   } else if (
-    /지하철|메트로|미도스지|다니마치|요쓰바시|주오선|센니치|사카이스지|나가호리|이마자토|난코|metro|subway/iu.test(
+    /지하철|메트로|전철|미도스지|다니마치|요쓰바시|주오선|센니치|사카이스지|나가호리|이마자토|난코|metro|subway|노선도|노선망|地铁|メトロ|港鐵|\bmtr\b|\bmrt\b/iu.test(
       utterance,
     )
   ) {
@@ -110,11 +131,11 @@ export function resolveRealityNeedFromUtterance(
     needId === "shinkansen_network"
   ) {
     const shortSolo =
-      /^(?:지하철|메트로|subway|metro|노선|JR|ＪＲ|신칸센|철도)$/iu.test(
+      /^(?:지하철|메트로|subway|metro|노선|노선도|JR|ＪＲ|신칸센|철도|地铁|港鐵|mtr|mrt)$/iu.test(
         utterance,
       );
     const mapish =
-      /표시|보여|켜|그려|띄워|올려|숨겨|꺼|지워|끄|숨김|없애|가려|깔|노선|선|線|\bline\b|전부|전체|해줘|해바|해봐|해죠/iu.test(
+      /표시|보여|켜|그려|띄워|올려|숨겨|꺼|지워|끄|숨김|없애|가려|깔|노선|선|線|找|찾아|搜|线|\bline\b|map|전부|전체|해줘|해바|해봐|해죠|깔아줘|깔아놔|보여줘|켜줘|띄워줘|올려줘|찾아줘/iu.test(
         utterance,
       );
     if (!shortSolo && !mapish) return null;

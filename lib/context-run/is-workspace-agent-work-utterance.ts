@@ -22,9 +22,12 @@ const LODGING_FIND_RE =
 const EATERY_FIND_RE =
   /(?:맛집|식당|카페|먹을\s*곳).*(?:찾아|보여|검색|추천)|(?:찾아|보여|검색|추천).*(?:맛집|식당|카페)/iu;
 
+const ACTIVITY_FIND_RE =
+  /(?:놀거리|관광|명소|가봐야|꼭\s*가\s*봐|가볼만).*(?:찾아|보여|검색|추천)|(?:찾아|보여|검색|추천).*(?:놀거리|관광|명소)|꼭\s*가\s*봐야\s*할\s*곳|가봐야\s*할\s*곳|must.?visit/iu;
+
 /** Soft follow-ups — only when a provisional Workspace already exists. */
 const ACTIVE_FOLLOW_RE =
-  /^(?:맛집|호텔|숙소|카페|놀거리|관광|티켓)(?:도|만|은|은요)?[!?.]*$|USJ\s*근처|유니버설\s*근처|(?:후쿠오카|도쿄|오사카|제주|교토).{0,8}(?:로|으로)\s*(?:바꿔|변경|가)|(?:3|2|4|5)\s*개만|가성비|더\s*싸/iu;
+  /^(?:맛집|호텔|숙소|카페|놀거리|관광|명소|티켓)(?:도|만|은|은요)?[!?.]*$|USJ\s*근처|유니버설\s*근처|(?:후쿠오카|도쿄|오사카|제주|교토|상하이|상해).{0,8}(?:로|으로)\s*(?:바꿔|변경|가)|(?:3|2|4|5)\s*개만|가성비|더\s*싸|꼭\s*가\s*봐야|가봐야/iu;
 
 /**
  * True when utterance is Workspace Agent work — clear/soft Patch or discovery.
@@ -50,12 +53,20 @@ export function isWorkspaceAgentWorkUtterance(utterance: string): boolean {
   if (isAgentExecuteVerbUtterance(text)) {
     return true;
   }
+  // 「지하철 노선도 보여줘」「깔아줘」— map overlay work, not free-talk.
+  if (
+    /(?:노선도|노선망|지하철|메트로|전철|신칸센|JR|地铁|港鐵|mtr|mrt).{0,12}(?:보여|깔|켜|표시|띄워|올려|찾아)|(?:보여|깔|켜|표시|띄워|올려|찾아).{0,12}(?:노선도|노선|지하철|메트로|地铁)/iu.test(
+      text,
+    )
+  ) {
+    return true;
+  }
   if (parseWorkspacePatch(text)) return true;
   if (parseWorkspaceRealityPatch(text)) return true;
   if (parseLodgingStayTypeFromText(text)) return true;
   if (isSpatialDiscoveryUtterance(text)) return true;
   if (isCompoundActionUtterance(text)) return true;
-  if (LODGING_FIND_RE.test(text) || EATERY_FIND_RE.test(text)) return true;
+  if (LODGING_FIND_RE.test(text) || EATERY_FIND_RE.test(text) || ACTIVITY_FIND_RE.test(text)) return true;
   if (
     /동선\s*(?:짜|만들|최적화|보여)|일정\s*(?:짜|세워|만들)|여행\s*준비|prep\s*(?:the\s*)?trip|plan\s*(?:a\s*)?(?:route|days|itinerary)|find\s+(?:hotels?|food)/iu.test(
       text,
